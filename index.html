@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b1110" />
+  <title>Nightfall: Zombie Run</title>
+  <style>
+    :root { --ink:#e9f7ec; --muted:#9bb3a2; --lime:#a9ed55; --orange:#ffb14a; --panel:#101b18; --line:#263d34; --danger:#ff625c; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--ink); background:radial-gradient(circle at 50% -10%,#244a39 0,#101d19 38%,#080d0c 78%); font-family:Arial,Helvetica,sans-serif; }
+    .wrap { width:min(1120px,94vw); margin:auto; padding:26px 0 48px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:18px; margin-bottom:24px; }
+    .brand { font-size:clamp(1.45rem,4vw,2.35rem); font-weight:900; letter-spacing:.055em; text-transform:uppercase; line-height:.9; }
+    .brand span { color:var(--lime); display:block; font-size:.45em; letter-spacing:.22em; margin-top:7px; }
+    .coin-bank { border:1px solid #6e9d31; color:#dfff9d; background:#182713; padding:10px 14px; border-radius:999px; font-weight:bold; white-space:nowrap; }
+    .game-grid { display:grid; grid-template-columns:minmax(0,1fr) 275px; gap:18px; }
+    .arena-card,.panel { background:linear-gradient(135deg,rgba(21,39,33,.94),rgba(10,18,15,.96)); border:1px solid var(--line); border-radius:18px; overflow:hidden; box-shadow:0 18px 55px rgba(0,0,0,.27); }
+    .hud { padding:14px 17px; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; border-bottom:1px solid var(--line); font-size:.9rem; }
+    .hud strong { color:var(--lime); } .health { color:#ffaaa5; }
+    canvas { display:block; width:100%; aspect-ratio:16/10; background:#17251c; cursor:crosshair; touch-action:none; }
+    .instructions { padding:12px 16px; color:var(--muted); font-size:.82rem; }
+    .panel { padding:18px; } .panel h2 { font-size:.94rem; letter-spacing:.13em; text-transform:uppercase; margin:0 0 13px; color:#d9eee0; }
+    .shop-item { border-top:1px solid var(--line); padding:13px 0; } .shop-item:first-of-type { border-top:0; padding-top:0; }
+    .shop-name { display:flex; justify-content:space-between; align-items:center; gap:8px; font-weight:bold; } .shop-item p { color:var(--muted); font-size:.79rem; line-height:1.4; margin:7px 0 10px; }
+    button { width:100%; border:1px solid #7fbd3c; background:linear-gradient(180deg,#b9f46a,#89cd43); color:#11200e; padding:9px 10px; font:800 .78rem Arial,sans-serif; letter-spacing:.04em; text-transform:uppercase; border-radius:8px; cursor:pointer; }
+    button:hover:not(:disabled) { filter:brightness(1.1); transform:translateY(-1px); } button:disabled { border-color:#3e5349; color:#83968b; background:#1c2a24; cursor:not-allowed; }
+    .selected { border-color:var(--orange); background:#3b2c15; color:#ffe0a5; padding:5px 8px; border-radius:99px; font-size:.67rem; }
+    .message { margin:18px 0 0; text-align:center; min-height:22px; color:#d7eadc; font-size:.9rem; }
+    .footer { color:#769080; margin-top:22px; font-size:.77rem; text-align:center; }
+    @media (max-width:760px) { .game-grid { grid-template-columns:1fr; } .panel { order:2; } header { align-items:flex-start; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header><div class="brand">Nightfall<span>Zombie Run</span></div><div class="coin-bank">◉ <span id="coins">0</span> coins</div></header>
+    <section class="game-grid">
+      <div class="arena-card">
+        <div class="hud"><span>LEVEL <strong id="level">1 — Graveyard</strong></span><span>WEAPON <strong id="weapon">Rusty Pistol</strong></span><span class="health">HEALTH <strong id="health">100</strong></span><span>KILLS <strong id="kills">0</strong></span></div>
+        <canvas id="game" width="960" height="600" aria-label="Zombie shooter game"></canvas>
+        <div class="instructions">Move with <b>WASD / arrow keys</b>. Aim with your mouse or finger and click/tap to shoot. Stay alive to earn coins.</div>
+      </div>
+      <aside class="panel">
+        <h2>Armory & missions</h2>
+        <div id="shop"></div>
+        <button id="restart" style="margin-top:12px">Restart current level</button>
+      </aside>
+    </section>
+    <p class="message" id="message">Clear zombies, grab coins, and unlock your next run.</p>
+    <p class="footer">Progress saves automatically on this device. Built for the undead hours.</p>
+  </main>
+  <script>
+  (() => {
+    const canvas=document.querySelector('#game'), ctx=canvas.getContext('2d');
+    const ui={coins:document.querySelector('#coins'),level:document.querySelector('#level'),weapon:document.querySelector('#weapon'),health:document.querySelector('#health'),kills:document.querySelector('#kills'),shop:document.querySelector('#shop'),message:document.querySelector('#message')};
+    const levels=[{name:'Graveyard',cost:0,goal:18,bg:'#1e3627'},{name:'Abandoned Mall',cost:60,goal:32,bg:'#26302c'},{name:'Hospital Wing',cost:150,goal:50,bg:'#283039'}];
+    const weapons=[{name:'Rusty Pistol',cost:0,damage:1,rate:340,bullets:1},{name:'Scattergun',cost:45,damage:1,rate:530,bullets:5},{name:'Plasma Blaster',cost:120,damage:3,rate:210,bullets:1}];
+    let save=JSON.parse(localStorage.getItem('nightfall-save')||'{"coins":0,"unlockedLevels":[0],"unlockedWeapons":[0]}');
+    let currentLevel=0,currentWeapon=0,player,zombies,bullets,keys={},aim={x:480,y:300},kills=0,lastShot=0,gameOver=false,waveDone=false,lastTime=0;
+    const persist=()=>localStorage.setItem('nightfall-save',JSON.stringify(save));
+    function reset(){ player={x:480,y:300,hp:100,angle:0}; zombies=[]; bullets=[]; kills=0; gameOver=false; waveDone=false; lastShot=0; ui.message.textContent='Keep moving. The dead are getting closer.'; spawn(); updateUI(); }
+    function spawn(){ const l=levels[currentLevel]; for(let i=0;i<l.goal;i++){ const edge=Math.floor(Math.random()*4), p=30+Math.random()*900, q=30+Math.random()*540, brute=Math.random()>.76; zombies.push({x:edge===0?10:edge===1?950:p,y:edge===2?10:edge===3?590:q,hp:2+currentLevel*2+(brute?2+currentLevel:0),speed:.38+Math.random()*.38+currentLevel*.12,r:13+Math.random()*5+(brute?4:0),hit:0}); } }
+    function updateUI(){ui.coins.textContent=save.coins;ui.level.textContent=`${currentLevel+1} — ${levels[currentLevel].name}`;ui.weapon.textContent=weapons[currentWeapon].name;ui.health.textContent=Math.max(0,Math.round(player.hp));ui.kills.textContent=`${kills}/${levels[currentLevel].goal}`; renderShop();}
+    function shoot(){ if(gameOver||waveDone)return; const w=weapons[currentWeapon],now=performance.now();if(now-lastShot<w.rate)return;lastShot=now; const base=Math.atan2(aim.y-player.y,aim.x-player.x); for(let i=0;i<w.bullets;i++){const a=base+(i-(w.bullets-1)/2)*.14;bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*10,vy:Math.sin(a)*10,d:w.damage,life:65});}}
+    function unlock(kind,i){const item=kind==='level'?levels[i]:weapons[i],list=kind==='level'?save.unlockedLevels:save.unlockedWeapons;if(list.includes(i)){if(kind==='level')currentLevel=i;else currentWeapon=i;reset();return;}if(save.coins<item.cost){ui.message.textContent=`You need ${item.cost-save.coins} more coins.`;return;}save.coins-=item.cost;list.push(i);persist();ui.message.textContent=`Unlocked ${item.name}!`;renderShop();updateUI();}
+    function renderShop(){let html='<div class="shop-item"><div class="shop-name">Levels</div><p>Finish a run and spend coins to open new hunting grounds.</p></div>'; levels.forEach((l,i)=>{const unlocked=save.unlockedLevels.includes(i),active=currentLevel===i;html+=`<div class="shop-item"><div class="shop-name">${i+1}. ${l.name}${active?'<span class="selected">Active</span>':''}</div><p>${i===0?'Your first hunt.':`Clear ${l.goal} zombies. ${l.cost} coins to unlock.`}</p><button data-kind="level" data-id="${i}" ${active?'disabled':''}>${unlocked?'Play level':`Unlock · ${l.cost} ◉`}</button></div>`});html+='<div class="shop-item"><div class="shop-name">Weapons</div><p>More firepower means more coins.</p></div>';weapons.forEach((w,i)=>{const unlocked=save.unlockedWeapons.includes(i),active=currentWeapon===i;html+=`<div class="shop-item"><div class="shop-name">${w.name}${active?'<span class="selected">Equipped</span>':''}</div><p>${w.name==='Rusty Pistol'?'Reliable, if a little tired.':w.name==='Scattergun'?'A close-range cone of trouble.':'Heavy damage, very fast shots.'}</p><button data-kind="weapon" data-id="${i}" ${active?'disabled':''}>${unlocked?'Equip':`Unlock · ${w.cost} ◉`}</button></div>`});ui.shop.innerHTML=html;document.querySelectorAll('[data-kind]').forEach(b=>b.onclick=()=>unlock(b.dataset.kind,+b.dataset.id));}
+    function step(t){const dt=Math.min(32,t-lastTime||16)/16;lastTime=t;if(!gameOver&&!waveDone){let dx=(keys.d||keys.ArrowRight?1:0)-(keys.a||keys.ArrowLeft?1:0),dy=(keys.s||keys.ArrowDown?1:0)-(keys.w||keys.ArrowUp?1:0);if(dx||dy){const m=Math.hypot(dx,dy);player.x=Math.max(18,Math.min(942,player.x+dx/m*4.2*dt));player.y=Math.max(18,Math.min(582,player.y+dy/m*4.2*dt));}player.angle=Math.atan2(aim.y-player.y,aim.x-player.x);bullets=bullets.filter(b=>{b.x+=b.vx*dt;b.y+=b.vy*dt;b.life--;let alive=b.life>0&&b.x>0&&b.x<960&&b.y>0&&b.y<600;zombies.forEach(z=>{if(alive&&Math.hypot(z.x-b.x,z.y-b.y)<z.r+4){z.hp-=b.d;z.hit=5;alive=false;}});return alive;});zombies=zombies.filter(z=>{const d=Math.hypot(player.x-z.x,player.y-z.y)||1;z.x+=(player.x-z.x)/d*z.speed*dt;z.y+=(player.y-z.y)/d*z.speed*dt;if(d<z.r+13)player.hp-=.23*dt;if(z.hp<=0){kills++;save.coins+=4+currentLevel*2;persist();return false;}z.hit=Math.max(0,z.hit-dt);return true;});if(player.hp<=0){gameOver=true;ui.message.textContent='You were overwhelmed. Press restart and take another shot.';}if(!zombies.length&&!waveDone){waveDone=true;const bonus=20+currentLevel*10;save.coins+=bonus;persist();ui.message.textContent=`Level cleared! Bonus: ${bonus} coins. Unlock the next mission when ready.`;}updateUI();}draw();requestAnimationFrame(step);}
+    function draw(){ctx.fillStyle=levels[currentLevel].bg;ctx.fillRect(0,0,960,600);ctx.strokeStyle='rgba(169,237,85,.08)';ctx.lineWidth=1;for(let x=0;x<960;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,600);ctx.stroke()}for(let y=0;y<600;y+=48){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(960,y);ctx.stroke()}ctx.fillStyle='rgba(5,12,8,.35)';for(let i=0;i<80;i++)ctx.fillRect((i*137)%960,(i*83)%600,3,3);zombies.forEach(z=>{ctx.fillStyle=z.hit?'#fff7b2':'#70bb60';ctx.beginPath();ctx.arc(z.x,z.y,z.r,0,Math.PI*2);ctx.fill();ctx.fillStyle='#152316';ctx.beginPath();ctx.arc(z.x-5,z.y-2,2,0,7);ctx.arc(z.x+5,z.y-2,2,0,7);ctx.fill();});bullets.forEach(b=>{ctx.fillStyle=currentWeapon===2?'#92edff':'#ffe486';ctx.beginPath();ctx.arc(b.x,b.y,4,0,7);ctx.fill();});ctx.save();ctx.translate(player.x,player.y);ctx.rotate(player.angle);ctx.fillStyle='#d9eadb';ctx.beginPath();ctx.arc(0,0,15,0,7);ctx.fill();ctx.fillStyle='#a9ed55';ctx.fillRect(5,-4,26,8);ctx.restore();if(gameOver||waveDone){ctx.fillStyle='rgba(3,10,7,.63)';ctx.fillRect(0,0,960,600);ctx.fillStyle=gameOver?'#ff8d84':'#dfff9d';ctx.font='900 40px Arial';ctx.textAlign='center';ctx.fillText(gameOver?'RUN OVER':'SECTOR CLEAR',480,275);ctx.fillStyle='#e9f7ec';ctx.font='18px Arial';ctx.fillText(gameOver?'Hit restart to try again.':'Visit the armory to advance.',480,313);}}
+    function point(e){const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;aim.x=(p.clientX-r.left)*960/r.width;aim.y=(p.clientY-r.top)*600/r.height;}
+    canvas.addEventListener('mousemove',point);canvas.addEventListener('mousedown',e=>{point(e);shoot()});canvas.addEventListener('touchstart',e=>{point(e);shoot()},{passive:true});canvas.addEventListener('touchmove',e=>{point(e);shoot()},{passive:true});window.addEventListener('keydown',e=>{keys[e.key]=true;if(e.key===' ')shoot()});window.addEventListener('keyup',e=>keys[e.key]=false);document.querySelector('#restart').onclick=reset;reset();requestAnimationFrame(step);
+  })();
+  </script>
+</body>
+</html>
